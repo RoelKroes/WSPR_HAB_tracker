@@ -1,5 +1,5 @@
 //******************************************************
-// Generate the messages to encode into the telemetry for the wspr protocol
+// Generate the messages to encode into the telemetry messages
 // Read more about the used protocol here:
 // https://qrp-labs.com/flights/s4.html
 //

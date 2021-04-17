@@ -26,7 +26,8 @@ static void smartDelay(unsigned long ms)
 }
 
 /*********************************************************************************************************************************/
-// Blink a LED which should be connected through a resistor on pin LED_PIN for visual status information
+// Blink a LED for visual status information. 
+// LED should be connected through a resistor on pin LED_PIN 
 // Blink 'nr' times for 'ms' milliseconds 
 /*********************************************************************************************************************************/
 void BlinkLED(unsigned int nr, unsigned int ms)
@@ -100,13 +101,13 @@ static void processGPSData()
     // Set the GPS location
     UGPS.Longitude = gps.location.lng();
     UGPS.Latitude = gps.location.lat();
-    UGPS.GPS_valid = 1;
     UGPS.speed_knots = gps.speed.knots();
     // Translate the GPS position to a Maidenhead location
     Get_MaidenHead();
 
     // Blink the LED twice for 50ms to show that the GPS location is valid
     BlinkLED(2,50);
+    UGPS.validLocation = true;
     
     // Check if it is time to transmit
     if ((UGPS.Seconds <= 2) && (UGPS.Minutes % 10 == minute_message_1)) 
@@ -128,9 +129,9 @@ static void processGPSData()
  else
  {
    // Invalid GPS location
+   UGPS.validLocation = false;
    UGPS.Longitude = 0;
    UGPS.Latitude = 0;
-   UGPS.GPS_valid = 0;
  }
 
  // Altitude

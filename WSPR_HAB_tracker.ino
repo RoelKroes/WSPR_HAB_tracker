@@ -5,34 +5,35 @@
 #include "Wire.h"
 #include "settings.h"
 
+
+/*********************************************************************************************** 
+* Anatomy of the WSPR-2 protocol:
+* 
+* - 110.6 sec continuous wave
+* - Frequency shifts among 4 tones every 0.683 sec
+* - Tones are separated by 1.46 Hz
+* - Total bandwidth of a WSPR-2 signal is about 6 Hz
+* - 50 bits of information are packaged into a 162 bit message with FEC
+* - Transmissions always begin 1 sec after even minutes (UTC)
+* - The WSPR band is only 200Hz width
+************************************************************************************************/
 // Mode defines
-#define WSPR_TONE_SPACING       146          // ~1.46 Hz
-#define WSPR_DELAY              683          // Delay value for WSPR
-
-// Choose one of the values for 16MHz or 8MHz processor
-// #define WSPR_CTC             10672        // CTC value for WSPR for 16 MHz processor
-// #define WSPR_CTC             5336         // CTC value for WSPR for 8 MHz processor
-#define WSPR_CTC                5336
-
-// Different modes which can be used with the JTEncode library. Only MODE_WSPR is used in this software.
-enum mode {MODE_JT9, MODE_JT65, MODE_JT4, MODE_WSPR, MODE_FSQ_2, MODE_FSQ_3,MODE_FSQ_4_5, MODE_FSQ_6, MODE_FT8};
-// Mode used to transmit
-#define DEFAULT_MODE            MODE_WSPR
+#define WSPR_TONE_SPACING       146          // ~1.46 Hz 
+#define WSPR_DELAY              683          // Delay value between frequency shifts for WSPR
+#define MAX_TX_LEN WSPR_SYMBOL_COUNT
 
 // Class instantiation
 Si5351 si5351;
 JTEncode jtencode;
 TinyGPSPlus gps;
 
-#define MAX_TX_LEN WSPR_SYMBOL_COUNT
-
 // Global variables
-unsigned long long freq;  
 uint8_t tx_buffer[255];
-enum mode cur_mode = DEFAULT_MODE;
 uint8_t symbol_count;
 uint16_t tone_delay, tone_spacing;
 char MaidenHead[7];
+unsigned long lastMorse = 0;
+SoftwareSerial SerialGPS(Rx, Tx);
 
 // Global variables used in ISRs
 volatile bool proceed = false;
@@ -49,30 +50,20 @@ struct TGPS
   float Longitude, Latitude;
   long Altitude;
   unsigned int Satellites;
-  byte FlightMode;
   bool sendMsg1 = false;
   bool sendMsg2 = false;
-  
+  bool validLocation = false;
   char call_2[7]; // HAM call for message 2
   char MH_1[5] = {'A', 'A', '0', '0', (char) 0};  // Maidenhead for message 1
   char MH_2[5] = {'A', 'A', '0', '0', (char) 0};  // Maidenhead for message 2
   uint8_t dbm_1;  // dbm for message 1
   uint8_t dbm_2;  // dbm for message 2
-  // Below are values which are used in encoding the second wspr message 
-  int GPS_valid;
   int Sats_valid;
   float volts;
   int speed_knots;
   int temperature;
 } UGPS;
 
-
-/***********************************************************************************
-* GLOBALS
-*  
-* Normally no change necessary
-************************************************************************************/
-SoftwareSerial SerialGPS(Rx, Tx);
 
 /****************************************************************************************************************
 *  Setup function
@@ -82,6 +73,7 @@ void setup()
 {
   bool i2c_found;
 
+  // init the LED if it is there
   if (LED_PIN > 0)
   {
     pinMode(LED_PIN, OUTPUT);
@@ -105,8 +97,7 @@ void setup()
   // Change the 2nd parameter in init to the frequency used in your oscillator  
   // if using a ref osc other than 25 MHz.
   // Specify 0 if you are using 25 MHz
-  
- i2c_found = si5351.init(SI5351_CRYSTAL_LOAD_10PF, SI5351FREQ, 0);
+  i2c_found = si5351.init(SI5351_CRYSTAL_LOAD_10PF, SI5351FREQ, 0);
   
   // Start on target frequency
   // Set the calibration factor for this module 
@@ -115,9 +106,11 @@ void setup()
   si5351.set_correction(SI5351_CORRECTION, SI5351_PLL_INPUT_XO);
   si5351.set_pll(SI5351_PLL_FIXED, SI5351_PLLA);
   
-  // Set CLK0 output, other clocks are not used.
+  // Disable CLK0 output initially, other clocks are not used in this sketch.
   si5351.drive_strength(SI5351_CLK0, SI5351_DRIVE_8MA); // Set for max power
-  si5351.output_enable(SI5351_CLK0, 0); // Disable the clock initially
+  si5351.output_enable(SI5351_CLK0, 0); // Disable the #1 clock initially (only one used in here)
+  si5351.output_enable(SI5351_CLK1, 0); // Disable the #2 clock initially (not used)
+  si5351.output_enable(SI5351_CLK2, 0); // Disable the #3 clock initially (not used)
 
   // Check the i2c bus for the si5351
   if (!i2c_found)
@@ -127,25 +120,14 @@ void setup()
 #endif
   }
 
-  // Set the mode to use
-  cur_mode = MODE_WSPR;
-
-  // Set the proper frequency, tone spacing, symbol count, and
-  // tone delay depending on mode
-  switch(cur_mode)
-  {
-    case MODE_WSPR:
-      symbol_count = WSPR_SYMBOL_COUNT; // From the library defines
-      tone_spacing = WSPR_TONE_SPACING;
-      tone_delay = WSPR_DELAY;
-    break;
-  }
-
-  UGPS.sendMsg1 = false; 
-  UGPS.sendMsg2 = false; 
+  // Set the proper frequency, tone spacing, symbol count  and tone delay
+  symbol_count = WSPR_SYMBOL_COUNT; // From the library defines
+  tone_spacing = WSPR_TONE_SPACING; // as defined in settings.h
+  tone_delay = WSPR_DELAY;          // as defined in settings.h 
   
   // Set up Timer1 for interrupts every 'symbol' period.
   // I did not get the timing for WSPR to work correctly with the ATMEL328, without using interrupts
+  // As this routine is using Timer1, you can still use delay() as delay() is using Timer0
   noInterrupts();          // Turn off interrupts.
   TCCR1A = 0;              // Set entire TCCR1A register to 0; disconnects
                            //   interrupt output pins, sets normal waveform
@@ -154,7 +136,7 @@ void setup()
   TCCR1B = (1 << CS12) |   // Set CS12 and CS10 bit to set prescale
     (1 << CS10) |          //   to /1024
     (1 << WGM12);          //   turn on CTC
-                           //   which gives, 64 us ticks
+                           //   which gives, 64us ticks with a 16MHz clock
   TIMSK1 = (1 << OCIE1A);  // Enable timer compare interrupt.
   OCR1A = WSPR_CTC;       // Set up interrupt trigger count;
   interrupts();            // Re-enable interrupts.
@@ -174,6 +156,7 @@ ISR(TIMER1_COMPA_vect)
 void encode()
 {
   uint8_t i;
+  unsigned long long lfreq;
 
   // Encode the message in the transmit buffer
   // This is RAM intensive and should be done separately from other subroutines
@@ -182,16 +165,21 @@ void encode()
   // Reset the tone to the base frequency and turn on the output
   si5351.output_enable(SI5351_CLK0, 1);
 
+  // Set the frequency
+  lfreq = WSPR_FREQ*100ULL;
+  
+  // Transmit all the symbols from the WSPR transmission one at a time
   for(i = 0; i < symbol_count; i++)
   {
-    si5351.set_freq((freq * 100) + (tx_buffer[i] * tone_spacing), SI5351_CLK0);
+    si5351.set_freq(lfreq + (tx_buffer[i] * tone_spacing), SI5351_CLK0);
     proceed = false;  
-    while(!proceed); // Wait for the timer interrupt to fire
+    while(!proceed); // Wait for the timer interrupt to fire (should be after about 0.683 secs)
   }
 
-  // Turn off the output
+  // Turn off the output again
   si5351.output_enable(SI5351_CLK0, 0);
 }
+
 
 /****************************************************************************************************************
 * Prepping the TX buffer
@@ -203,33 +191,28 @@ void set_tx_buffer()
   memset(tx_buffer, 0, 255);
 
   // Check if it is time to transmit
-  switch(cur_mode)
+  if (UGPS.sendMsg1)
   {
-  case MODE_WSPR:
-    if (UGPS.sendMsg1)
+    #if defined(DEVMODE)    
+       Serial.print(F("Sending: ")); 
+       Serial.print(MYCALL); Serial.print(F(" "));
+       Serial.print(UGPS.MH_1); Serial.print(F(" "));
+       Serial.println(UGPS.dbm_1);
+    #endif
+       jtencode.wspr_encode(MYCALL, UGPS.MH_1, UGPS.dbm_1, tx_buffer);
+  }
+  else
+  {
+    if (UGPS.sendMsg2)
     {
       #if defined(DEVMODE)    
-         Serial.print(F("Sending: ")); 
-         Serial.print(MYCALL); Serial.print(F(" "));
-         Serial.print(UGPS.MH_1); Serial.print(F(" "));
-         Serial.println(UGPS.dbm_1);
-      #endif
-         jtencode.wspr_encode(MYCALL, UGPS.MH_1, UGPS.dbm_1, tx_buffer);
+       Serial.print(F("Sending: ")); 
+       Serial.print(UGPS.call_2); Serial.print(F(" "));
+       Serial.print(UGPS.MH_2); Serial.print(F(" "));
+       Serial.println(UGPS.dbm_2);
+      #endif   
+      jtencode.wspr_encode(UGPS.call_2, UGPS.MH_2, UGPS.dbm_2, tx_buffer);
     }
-    else
-    {
-      if (UGPS.sendMsg2)
-      {
-        #if defined(DEVMODE)    
-         Serial.print(F("Sending: ")); 
-         Serial.print(UGPS.call_2); Serial.print(F(" "));
-         Serial.print(UGPS.MH_2); Serial.print(F(" "));
-         Serial.println(UGPS.dbm_2);
-        #endif   
-        jtencode.wspr_encode(UGPS.call_2, UGPS.MH_2, UGPS.dbm_2, tx_buffer);
-      }
-    }
-  break;
   }
 }
 
@@ -247,9 +230,8 @@ void loop()
   if (UGPS.sendMsg1 || UGPS.sendMsg2)
   {
     // Encode and TX
-    freq = WSPR_FREQ_1;
     #if defined(DEVMODE)    
-      Serial.print(F("TX..")); Serial.print(F("Frequency: ")); printull(freq);
+      Serial.print(F("TX..")); Serial.print(F("Frequency: ")); printull(WSPR_FREQ);
     #endif
   
     encode();
@@ -267,4 +249,16 @@ void loop()
       gotoSleep();
     }
   }
+
+#if defined(USE_MORSE)
+  // When there is no valid GPS fix, send the morse message about every minute
+  if (!UGPS.validLocation && ((millis() - lastMorse) > 60000))
+  {
+    // Morse frequency is user definable but as a suggestion I would say
+    // set the morse frequency 200Hz above the WSPR frequency
+    si5351.set_freq(MORSE_FREQ, SI5351_CLK0);
+    send_morse_msg(MORSE_MESSAGE);
+    lastMorse = millis();
+  }
+#endif
 }
