@@ -256,7 +256,7 @@ void loop()
   {
     // Morse frequency is user definable but as a suggestion I would say
     // set the morse frequency 200Hz above the WSPR frequency
-    si5351.set_freq(MORSE_FREQ, SI5351_CLK0);
+    si5351.set_freq(MORSE_FREQ*100ULL, SI5351_CLK0);
     send_morse_msg(MORSE_MESSAGE);
     lastMorse = millis();
   }
