@@ -1,3 +1,4 @@
+#include <avr/wdt.h>
 #include <si5351.h>     // You need to download this one https://github.com/etherkit/Si5351Arduino
 #include <TinyGPS++.h>  // you need to download this one https://github.com/mikalhart/TinyGPSPlus
 #include <SoftwareSerial.h>
@@ -73,6 +74,9 @@ void setup()
 {
   bool i2c_found;
 
+  // Enable the watchdog timer
+  wdt_enable(WDTO_8S);
+  
   // init the LED if it is there
   if (LED_PIN > 0)
   {
@@ -174,6 +178,7 @@ void encode()
     si5351.set_freq(lfreq + (tx_buffer[i] * tone_spacing), SI5351_CLK0);
     proceed = false;  
     while(!proceed); // Wait for the timer interrupt to fire (should be after about 0.683 secs)
+    wdt_reset();
   }
 
   // Turn off the output again
@@ -261,4 +266,6 @@ void loop()
     lastMorse = millis();
   }
 #endif
+// Reset the watchdog
+wdt_reset();
 }

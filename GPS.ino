@@ -151,7 +151,7 @@ static void processGPSData()
 void printGPSData()
 {
 #if defined(DEVMODE)   
-  Serial.print(F("       Valid Time: ")); Serial.println(gps.time.isValid()); 
+  // Serial.print(F("       Valid Time: ")); Serial.println(gps.time.isValid()); Does not work correctly
   Serial.print(F("   Valid Location: ")); Serial.println(gps.location.isValid()); 
   Serial.print(F("       Sats valid: ")); Serial.println(UGPS.Sats_valid);
   Serial.print(F("             Time: ")); Serial.print(UGPS.Hours); Serial.print(F(":")); Serial.print(UGPS.Minutes); Serial.print(F(":")); Serial.println(UGPS.Seconds);

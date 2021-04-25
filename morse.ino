@@ -125,6 +125,7 @@ void send_morse_msg(const char *str)
   while (*str)
   {
     send(*str++) ;
+    wdt_reset();
   }
 #if defined(DEVMODE)   
   Serial.println(F("  <<-- Done!")); 

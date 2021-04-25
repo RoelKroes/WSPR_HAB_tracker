@@ -31,8 +31,9 @@
 ************************************************************************************/
 const char TELEM_CHAR1 = '1';    // First character of the special callsign of the second transmission 
 const char TELEM_CHAR2 = '1';    // Third character of the special callsign of the second transmission 
-const int minute_message_1 = 4;  // Send first message at minute 04,14,24,34,44 and 54
-const int minute_message_2 = 6;  // Send telemetry message at minute 06,16,26,36,46 and 56
+const int minute_message_1 = 4;  // Send first message at minute 02,12,22,32,42 and 52
+const int minute_message_2 = 6;  // Send telemetry message at minute 04,14,24,34,44 and 54
+
 
 /***********************************************************************************  
 * Adjust this value for your processor speed.
@@ -42,7 +43,7 @@ const int minute_message_2 = 6;  // Send telemetry message at minute 06,16,26,36
 * for a 8 MHz processor:  5336
 * for a 16 MHz processor: 10672
 ************************************************************************************/
-#define WSPR_CTC 5336 
+#define WSPR_CTC 10672
 
 
 /***********************************************************************************
@@ -56,7 +57,7 @@ const int minute_message_2 = 6;  // Send telemetry message at minute 06,16,26,36
 * 
 * Note that these values are in Hz and should be within the WSPR band
 ************************************************************************************/
-#define WSPR_FREQ 14097100ULL
+uint64_t WSPR_FREQ = 14097095ULL;
 
 /***********************************************************************************  
 * MORSE SETTINGS - Change if needed   
@@ -77,7 +78,7 @@ const int minute_message_2 = 6;  // Send telemetry message at minute 06,16,26,36
 #define USE_MORSE
 #define MORSE_MESSAGE "MYCALL BALLOON NO GPS"
 #define MORSE_SPEED 14
-#define MORSE_FREQ 14097300ULL
+uint64_t MORSE_FREQ = 14097300ULL;
 
 
 /***********************************************************************************  
@@ -96,11 +97,9 @@ const int minute_message_2 = 6;  // Send telemetry message at minute 06,16,26,36
 
 /***********************************************************************************  
 * Frequency of the SI5351 Oscillator in Hertz (usually printed on the breakout board)
-* for example: #define SI5351FREQ 26000000
-* Use 0 if you have a 25MHz Oscillator
+* for example: uint64_t SI5351FREQ = 26000000ULL;
 ************************************************************************************/
-#define SI5351FREQ 0
-
+uint64_t SI5351FREQ = 25000000ULL;
 
 /***********************************************************************************
 * All Si5351 IC's in combination with their oscillator have an accuracy error.
@@ -114,7 +113,8 @@ const int minute_message_2 = 6;  // Send telemetry message at minute 06,16,26,36
 * If your si5351 transmits too high, use a positive value
 * Correction is in 1/100 Herz.
 ************************************************************************************/
-#define SI5351_CORRECTION -12000
+// int32_t SI5351_CORRECTION = -800;
+int32_t SI5351_CORRECTION = 0;
 
 
 /***********************************************************************************
